@@ -100,41 +100,6 @@ def normalize_tick(symbol, day, time, ask, bid, ask_vol, bid_vol):
     return [date, ask / point, bid / point, round(ask_vol * 1000000), round(bid_vol * 1000000)]
 
 
-# 一日分のtickをDL(DL → decomp → tokenize → normalize)
-def download_ticks(symbol, day):
-    url_prefix = 'https://datafeed.dukascopy.com/datafeed'
-
-    ticks_day = []
-    for h in range(0, 24):
-        file_name = f'{h:02d}h_ticks.bi5'
-        url = f'{url_prefix}/{symbol}/{day.year:04d}/{day.month - 1:02d}/{day.day:02d}/{file_name}'
-        print(f'downloading: {url}')
-
-        req = request.Request(url)
-        try:
-            with request.urlopen(req) as res:
-                res_body = res.read()
-        except HTTPError:
-            print('download failed. continuing..')
-            continue
-
-        if len(res_body):
-            try:
-                data = decompress_lzma(res_body)
-            except LZMAError:
-                print('decompress failed. continuing..')
-                continue
-        else:
-            data = []
-
-        tokenized_data = tokenize(data)
-
-        ticks_hour = list(map(lambda x: normalize_tick(symbol, day + timedelta(hours=h), *x), tokenized_data))
-        ticks_day.extend(ticks_hour)
-
-    return ticks_day
-
-
 def format_to_csv_for_ticks(ticks):
     df = pd.DataFrame(ticks, columns=['date', 'Ask', 'Bid', 'AskVolume', 'BidVolume'])
     df = df.drop(['Ask', 'AskVolume', 'BidVolume'], axis=1)
@@ -157,11 +122,10 @@ def format_to_csv_for_candle(ticks, scale):
         else:
             h4_start_hour = "22h"
         df_ohlc = df.resample(scale, offset=h4_start_hour).ohlc()
+        df_ohlcv = df_ohlc.assign(Volume=df.iloc[:, 0].resample(scale, offset=h4_start_hour).count())
     else:
         df_ohlc = df.resample(scale).ohlc()
-    df_ohlcv = df_ohlc.assign(Volume=df.iloc[:, 0].resample(scale).count())
-
-    # csv_str = df_ohlcv.to_csv(header=False, date_format = '%Y-%m-%d %H:%M:%S')
+        df_ohlcv = df_ohlc.assign(Volume=df.iloc[:, 0].resample(scale).count())
 
     return df_ohlcv
 
@@ -184,7 +148,7 @@ def load_bi5(path, symbol, day: datetime):
         with open(file_path, "rb") as res:
             res_body = res.read()
     except Exception as e:
-        print('load failed. continuing..%s' % file_path)
+        print('load failed. continuing...save_path=%s' % file_path)
 
         url_prefix = 'https://datafeed.dukascopy.com/datafeed'
         url = f'{url_prefix}/{symbol}/{day.year:04d}/{day.month - 1:02d}/{day.day:02d}/{file_name}'
@@ -259,7 +223,7 @@ def main():
     parser.add_option('-d', action="store", metavar='output_dir', dest="d", default='./', help="output directory.")
 
     parser.add_option('--mongo', action="store_true", help="save data to mongodb")
-    parser.add_option('-s', action="store", metavar='source_dir', dest="s", help="source directory.")
+    parser.add_option('-s', action="store", metavar='source_dir', dest="s", default='./', help="source data directory.")
 
     (options, args) = parser.parse_args()
 
@@ -281,10 +245,8 @@ def main():
     result_df = pd.DataFrame()
     while d <= end_date:
         df=pd.DataFrame()
-        if options.s:
-            ticks_day = from_local_path(options.s, symbol, d)
-        else:
-            ticks_day = download_ticks(symbol, d)
+        ticks_day = from_local_path(options.s, symbol, d)
+
 
         if options.c is None:
 
@@ -312,10 +274,10 @@ def main():
                 df["date"]=df["date"].astype(str)
                 df["volume"] = df['volume'].astype(float)
                 df['timestamp'] = df["date"].apply(lambda x: x.split(" ")[1])
-                data=df.to_dict(orient='record')
-                pymongo.conn["EUR_USD"+"_duka"]["M30"].insert_many(data)
+                data=df.to_dict(orient='records')
+                pymongo.conn["%s_duka" %symbol][options.c].insert_many(data)
             except Exception as e:
-                print(df)
+                print(e)
 
     if not save_mongo:
         result_df.to_csv(output_csv)
