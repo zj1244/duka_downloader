@@ -108,9 +108,12 @@ def format_to_csv_for_ticks(ticks):
     return df
 
 
-def format_to_csv_for_candle(ticks, scale):
+def format_to_csv_for_candle(ticks, scale,price_type):
     df = pd.DataFrame(ticks, columns=['date', 'Ask', 'Bid', 'AskVolume', 'BidVolume'])
-    df = df.drop(['Ask', 'AskVolume', 'BidVolume'], axis=1)
+    if price_type=="bid":
+        df = df.drop(['Ask', 'AskVolume', 'BidVolume'], axis=1)
+    else:
+        df = df.drop(['Bid', 'AskVolume', 'BidVolume'], axis=1)
     df['date'] = pd.to_datetime(df['date'])
     df.set_index('date', inplace=True)
     if scale.lower() == "4h":
@@ -221,7 +224,7 @@ def main():
             os.path.basename(__file__)))
     parser.add_option('-c', action="store", metavar='time_scale', dest="c", help="candlestick. ex: 1min, 1H, 1D")
     parser.add_option('-d', action="store", metavar='output_dir', dest="d", default='./', help="output directory.")
-
+    parser.add_option('-t', action="store", metavar='price_type', dest="t", default='bid', help="select price type")
     parser.add_option('--mongo', action="store_true", help="save data to mongodb")
     parser.add_option('-s', action="store", metavar='source_dir', dest="s", default='./', help="source data directory.")
 
@@ -238,7 +241,7 @@ def main():
     save_mongo = True if options.mongo else False
     output_dir = options.d
     output_suffix = f'_{options.c}' if options.c is not None else ''
-    output_csv = f'{output_dir}/dfd_{symbol}_{start_date.strftime("%Y-%m-%d")}_{end_date.strftime("%Y-%m-%d")}{output_suffix}.csv'
+    output_csv = f'{output_dir}/{symbol}_{start_date.strftime("%Y-%m-%d")}_{end_date.strftime("%Y-%m-%d")}{output_suffix}_{options.t}.csv'
 
     d = start_date
 
@@ -256,7 +259,7 @@ def main():
 
         else:
             if ticks_day:
-                df = format_to_csv_for_candle(ticks_day, options.c)
+                df = format_to_csv_for_candle(ticks_day, options.c, options.t)
                 df.columns = ["open", "high", "low", "close", "volume"]
 
 
