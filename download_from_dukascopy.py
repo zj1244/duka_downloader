@@ -116,7 +116,7 @@ def format_to_csv_for_candle(ticks, scale,price_type):
         df = df.drop(['Bid', 'AskVolume', 'BidVolume'], axis=1)
     df['date'] = pd.to_datetime(df['date'])
     df.set_index('date', inplace=True)
-    if scale.lower() == "4h":
+    if scale.lower() in ["4h","1d"]:
         # is_dst_result = is_dst(df.index[0])
         is_dst_result, _, _ = is_dst(datetime.strptime(df.index[0].strftime("%Y-%m-%d"), "%Y-%m-%d"))
         if is_dst_result:
@@ -278,7 +278,7 @@ def main():
                 df["volume"] = df['volume'].astype(float)
                 df['timestamp'] = df["date"].apply(lambda x: x.split(" ")[1])
                 data=df.to_dict(orient='records')
-                pymongo.conn["%s_duka" %symbol][options.c].insert_many(data)
+                pymongo.conn["EUR_USD_duka" ]["M1"].insert_many(data)
             except Exception as e:
                 print(e)
 
