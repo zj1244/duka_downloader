@@ -11,6 +11,7 @@ import pandas as pd
 
 pymongo = Mongodb(host='127.0.0.1', port=27017)
 
+
 def get_weekday(datetime_obj, week_day="monday"):
     """
     获取指定时间的当周的星期x
@@ -108,15 +109,18 @@ def format_to_csv_for_ticks(ticks):
     return df
 
 
-def format_to_csv_for_candle(ticks, scale,price_type):
+def format_to_csv_for_candle(ticks, scale, price_type):
     df = pd.DataFrame(ticks, columns=['date', 'Ask', 'Bid', 'AskVolume', 'BidVolume'])
-    if price_type=="bid":
+    if price_type == "bid":
         df = df.drop(['Ask', 'AskVolume', 'BidVolume'], axis=1)
-    else:
+    elif price_type == "ask":
+
         df = df.drop(['Bid', 'AskVolume', 'BidVolume'], axis=1)
+    else:
+        df = df.drop(['AskVolume', 'BidVolume'], axis=1)
     df['date'] = pd.to_datetime(df['date'])
     df.set_index('date', inplace=True)
-    if scale.lower() in ["4h","1d"]:
+    if scale.lower() in ["4h", "1d"]:
         # is_dst_result = is_dst(df.index[0])
         is_dst_result, _, _ = is_dst(datetime.strptime(df.index[0].strftime("%Y-%m-%d"), "%Y-%m-%d"))
         if is_dst_result:
@@ -189,16 +193,34 @@ def from_local_path(path, symbol, day):
 
     result, dst_start, dst_end = is_dst(day)
     if result:
-        end_time = day + timedelta(hours=0) + timedelta(days=1)
-        if dst_start == day:
-            day += timedelta(hours=20)
+        # end_time = day + timedelta(hours=0) + timedelta(days=1)
+        # if dst_start == day:
+        #     day += timedelta(hours=20)
+        #
+        # while True:
+        #     if day == end_time:
+        #         break
+        #     day = day + timedelta(hours=1)
+        #     ticks_hour = load_bi5(path, symbol, day)
+        #     ticks_day.extend(ticks_hour)
 
+
+        if dst_start == day + timedelta(days=1):
+            return []
+        end_time = day + timedelta(hours=21) + timedelta(days=1)
+        if dst_end == day:
+            day = day + timedelta(hours=-3)
+        else:
+            day = day + timedelta(hours=-3) + timedelta(days=1)
         while True:
             if day == end_time:
                 break
-            day = day + timedelta(hours=1)
+
             ticks_hour = load_bi5(path, symbol, day)
+            day = day + timedelta(hours=1)
             ticks_day.extend(ticks_hour)
+
+
     else:
         if dst_start == day + timedelta(days=1):
             return []
@@ -224,7 +246,8 @@ def main():
             os.path.basename(__file__)))
     parser.add_option('-c', action="store", metavar='time_scale', dest="c", help="candlestick. ex: 1min, 1H, 1D")
     parser.add_option('-d', action="store", metavar='output_dir', dest="d", default='./', help="output directory.")
-    parser.add_option('-t', action="store", metavar='price_type', dest="t", default='bid', help="select price type")
+    parser.add_option('-t', action="store", metavar='price_type', dest="t", default='bid',
+                      help="select price type. ex: bid, ask, all")
     parser.add_option('--mongo', action="store_true", help="save data to mongodb")
     parser.add_option('-s', action="store", metavar='source_dir', dest="s", default='./', help="source data directory.")
 
@@ -247,9 +270,8 @@ def main():
 
     result_df = pd.DataFrame()
     while d <= end_date:
-        df=pd.DataFrame()
+        df = pd.DataFrame()
         ticks_day = from_local_path(options.s, symbol, d)
-
 
         if options.c is None:
 
@@ -260,9 +282,16 @@ def main():
         else:
             if ticks_day:
                 df = format_to_csv_for_candle(ticks_day, options.c, options.t)
-                df.columns = ["open", "high", "low", "close", "volume"]
 
-
+                df.columns = ["open", "high", "low", "close", "volume"] if options.t in ["bid", "ask"] else ["ask_open",
+                                                                                                             "ask_high",
+                                                                                                             "ask_low",
+                                                                                                             "ask_close",
+                                                                                                             "bid_open",
+                                                                                                             "bid_high",
+                                                                                                             "bid_low",
+                                                                                                             "bid_close",
+                                                                                                             "volume"]
 
                 result_df = pd.concat([result_df, df])
 
@@ -273,12 +302,12 @@ def main():
         if save_mongo:
             try:
                 df = df.reset_index()
-                df["complete"]=1.0
-                df["date"]=df["date"].astype(str)
+                df["complete"] = 1.0
+                df["date"] = df["date"].astype(str)
                 df["volume"] = df['volume'].astype(float)
                 df['timestamp'] = df["date"].apply(lambda x: x.split(" ")[1])
-                data=df.to_dict(orient='records')
-                pymongo.conn["EUR_USD_duka" ]["M1"].insert_many(data)
+                data = df.to_dict(orient='records')
+                pymongo.conn["%s_duka" %symbol][options.c].insert_many(data)
             except Exception as e:
                 print(e)
 
